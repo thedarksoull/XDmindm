@@ -1,0 +1,434 @@
+/**
+ * Data searching commands.
+ * Pokemon Showdown - http://pokemonshowdown.com/
+ *
+ * Commands for advanced searching for pokemon, moves, items and learnsets.
+ * These commands run on a child process by default.
+ *
+ * @license MIT
+ */
+
+'use strict';
+
+const MAX_PROCESSES = 1;
+const RESULTS_MAX_LENGTH = 10;
+
+function escapeHTML(str) {
+	if (!str) return '';
+	return ('' + str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;').replace(/\//g, '&#x2f;');
+}
+
+exports.commands = {
+	'!dexsearch': true,
+	ds: 'dexsearch',
+	ds1: 'dexsearch',
+	ds2: 'dexsearch',
+	ds3: 'dexsearch',
+	ds4: 'dexsearch',
+	ds5: 'dexsearch',
+	ds6: 'dexsearch',
+	ds7: 'dexsearch',
+	dsearch: 'dexsearch',
+	dexsearch: function (target, room, user, connection, cmd, message) {
+		if (!this.canBroadcast()) return;
+		if (!target) return this.parse('/help dexsearch');
+		let targetGen = parseInt(cmd[cmd.length - 1]);
+		if (targetGen) target += `, maxgen${targetGen}`;
+		return runSearch({
+			target: target,
+			cmd: 'dexsearch',
+			canAll: (!this.broadcastMessage || (room && room.isPersonal)),
+			message: (this.broadcastMessage ? "" : message),
+		}).then(response => {
+			if (!this.runBroadcast()) return;
+			if (response.error) {
+				this.errorReply(response.error);
+			} else if (response.reply) {
+				this.sendReplyBox(response.reply);
+			} else if (response.dt) {
+				if (targetGen) response.dt += `, gen${targetGen}`;
+				Chat.commands.data.call(this, response.dt, room, user, connection, 'dt');
+			}
+			this.update();
+		});
+	},
+
+	dexsearchhelp: [
+		`/dexsearch [parameter], [parameter], [parameter], ... - Searches for Pok\u00e9mon that fulfill the selected criteria`,
+		`Search categories are: type, tier, color, moves, ability, gen, resists, recovery, priority, stat, weight, height, egg group.`,
+		`Valid colors are: green, red, blue, white, brown, yellow, purple, pink, gray and black.`,
+		`Valid tiers are: Uber/OU/UUBL/UU/RUBL/RU/NUBL/NU/PUBL/PU/NFE/LC/LCUber/CAP/CAP NFE/CAP LC.`,
+		`Valid doubles tiers are: DUber/DOU/DBL/DUU.`,
+		`Types can be searched for by either having the type precede 'type' or just using the type itself as a parameter, e.g., both 'fire type' and 'fire' show all Fire types; however, using 'psychic' as a parameter will show all Pok\u00e9mon that learn the move Psychic and not Psychic types.`,
+		`'resists' followed by a type will show Pok\u00e9mon that resist that typing, e.g., 'resists normal'.`,
+		`'weak' followed by a type will show Pok\u00e9mon that are weak to that typing, e.g., 'weak fire'.`,
+		`Inequality ranges use the characters '>=' for '=' and '<=' for '=', e.g., 'hp <= 95' searches all Pok\u00e9mon with HP less than or equal to 95.`,
+		`Parameters can be excluded through the use of '!', e.g., '!water type' excludes all water types.`,
+		`The parameter 'mega' can be added to search for Mega Evolutions only, and the parameter 'NFE' can be added to search not-fully evolved Pok\u00e9mon only.`,
+		`Parameters separated with '|' will be searched as alternatives for each other, e.g., 'trick | switcheroo' searches for all Pok\u00e9mon that learn either Trick or Switcheroo.`,
+		`You can search for info in a specific generation by appending the generation to ds, e.g. '/ds1 normal' searches for all Pok\u00e9mon that were normal type in Generation I.`,
+		`Searching for a Pok\u00e9mon with both egg group and type parameters can be differentiated by adding the suffix 'group' onto the egg group parameter, e.g., seaching for 'grass, grass group' will show all Grass types in the Grass egg group.`,
+		`The order of the parameters does not matter.`,
+	],
+
+	'!randommove': true,
+	rollmove: 'randommove',
+	randmove: 'randommove',
+	randommove: function (target, room, user, connection, cmd, message) {
+		if (!this.canBroadcast(true)) return;
+		let targets = target.split(",");
+		let targetsBuffer = [];
+		let qty;
+		for (const arg of targets) {
+			if (!arg) continue;
+			let num = Number(arg);
+			if (Number.isInteger(num)) {
+				if (qty) return this.errorReply("Only specify the number of Pok\u00e9mon Moves once.");
+				qty = num;
+				if (qty < 1 || 15 < qty) return this.errorReply("Number of random Pok\u00e9mon Moves must be between 1 and 15.");
+				targetsBuffer.push(`random${qty}`);
+			} else {
+				targetsBuffer.push(arg);
+			}
+		}
+		if (!qty) targetsBuffer.push("random1");
+
+		return runSearch({
+			target: targetsBuffer.join(","),
+			cmd: 'randmove',
+			canAll: (!this.broadcastMessage || (room && room.isPersonal)),
+			message: (this.broadcastMessage ? "" : message),
+		}).then(response => {
+			if (!this.runBroadcast(true)) return;
+			if (response.error) {
+				this.errorReply(response.error);
+			} else if (response.reply) {
+				this.sendReplyBox(response.reply);
+			} else if (response.dt) {
+				Chat.commands.data.call(this, response.dt, room, user, connection, 'dt');
+			}
+			this.update();
+		});
+	},
+	randommovehelp: [
+		`/randommove - Generates random Pok\u00e9mon Moves based on given search conditions.`,
+		`/randommove uses the same parameters as /movesearch (see '/help ms').`,
+		`Adding a number as a parameter returns that many random Pok\u00e9mon Moves, e.g., '/randmove 6' returns 6 random Pok\u00e9mon Moves.`,
+	],
+	'!randompokemon': true,
+	rollpokemon: 'randompokemon',
+	randpoke: 'randompokemon',
+	randompokemon: function (target, room, user, connection, cmd, message) {
+		if (!this.canBroadcast(true)) return;
+		let targets = target.split(",");
+		let targetsBuffer = [];
+		let qty;
+		for (const arg of targets) {
+			if (!arg) continue;
+			let num = Number(arg);
+			if (Number.isInteger(num)) {
+				if (qty) return this.errorReply("Only specify the number of Pok\u00e9mon once.");
+				qty = num;
+				if (qty < 1 || 15 < qty) return this.errorReply("Number of random Pok\u00e9mon must be between 1 and 15.");
+				targetsBuffer.push(`random${qty}`);
+			} else {
+				targetsBuffer.push(arg);
+			}
+		}
+		if (!qty) targetsBuffer.push("random1");
+
+		return runSearch({
+			target: targetsBuffer.join(","),
+			cmd: 'randpoke',
+			canAll: (!this.broadcastMessage || (room && room.isPersonal)),
+			message: (this.broadcastMessage ? "" : message),
+		}).then(response => {
+			if (!this.runBroadcast(true)) return;
+			if (response.error) {
+				this.errorReply(response.error);
+			} else if (response.reply) {
+				this.sendReplyBox(response.reply);
+			} else if (response.dt) {
+				Chat.commands.data.call(this, response.dt, room, user, connection, 'dt');
+			}
+			this.update();
+		});
+	},
+	randompokemonhelp: [
+		`/randompokemon - Generates random Pok\u00e9mon based on given search conditions.`,
+		`/randompokemon uses the same parameters as /dexsearch (see '/help ds').`,
+		`Adding a number as a parameter returns that many random Pok\u00e9mon, e.g., '/randpoke 6' returns 6 random Pok\u00e9mon.`,
+	],
+
+	'!movesearch': true,
+	ms: 'movesearch',
+	msearch: 'movesearch',
+	movesearch: function (target, room, user, connection, cmd, message) {
+		if (!this.canBroadcast()) return;
+		if (!target) return this.parse('/help movesearch');
+
+		return runSearch({
+			target: target,
+			cmd: 'movesearch',
+			canAll: (!this.broadcastMessage || (room && room.isPersonal)),
+			message: (this.broadcastMessage ? "" : message),
+		}).then(response => {
+			if (!this.runBroadcast()) return;
+			if (response.error) {
+				this.errorReply(response.error);
+			} else if (response.reply) {
+				this.sendReplyBox(response.reply);
+			} else if (response.dt) {
+				Chat.commands.data.call(this, response.dt, room, user, connection, 'dt');
+			}
+			this.update();
+		});
+	},
+	movesearchhelp: [
+		`/movesearch [parameter], [parameter], [parameter], ... - Searches for moves that fulfill the selected criteria.`,
+		`Search categories are: type, category, gen, contest condition, flag, status inflicted, type boosted, and numeric range for base power, pp, and accuracy.`,
+		`Types must be followed by ' type', e.g., 'dragon type'.`,
+		`Stat boosts must be preceded with 'boosts ', and stat-lowering moves with 'lowers ', e.g., 'boosts attack' searches for moves that boost the Attack stat of either Pok\u00e9mon.`,
+		`Z-stat boosts must be preceded with 'zboosts ', e.g., 'zboosts accuracy' searches for all Status moves with Z-Effects that boost the user's accuracy.`,
+		`Moves that have a Z-Effect of fully restoring the user's health can be searched for with 'zrecovery'.`,
+		`Inequality ranges use the characters '>' and '<' though they behave as '=' and '=', e.g., 'bp > 100' searches for all moves equal to and greater than 100 base power.`,
+		`Parameters can be excluded through the use of '!', e.g., !water type' excludes all Water-type moves.`,
+		`Valid flags are: authentic (bypasses substitute), bite, bullet, contact, defrost, powder, protect, pulse, punch, secondary, snatch, and sound.`,
+		`A search that includes '!protect' will show all moves that bypass protection.`,
+		`Parameters separated with '|' will be searched as alternatives for each other, e.g., 'fire | water' searches for all moves that are either Fire type or Water type.`,
+		`If a Pok\u00e9mon is included as a parameter, moves will be searched from its movepool.`,
+		`The order of the parameters does not matter.`,
+	],
+
+	'!itemsearch': true,
+	isearch: 'itemsearch',
+	is: 'itemsearch',
+	itemsearch: function (target, room, user, connection, cmd, message) {
+		if (!this.canBroadcast()) return;
+		if (!target) return this.parse('/help itemsearch');
+
+		return runSearch({
+			target: target,
+			cmd: 'itemsearch',
+			canAll: (!this.broadcastMessage || (room && room.isPersonal)),
+			message: (this.broadcastMessage ? "" : message),
+		}).then(response => {
+			if (!this.runBroadcast()) return;
+			if (response.error) {
+				this.errorReply(response.error);
+			} else if (response.reply) {
+				this.sendReplyBox(response.reply);
+			} else if (response.dt) {
+				Chat.commands.data.call(this, response.dt, room, user, connection, 'dt');
+			}
+			this.update();
+		});
+	},
+	itemsearchhelp: [
+		`/itemsearch [move description] - finds items that match the given key words.`,
+		`Command accepts natural language. (tip: fewer words tend to work better)`,
+		`Searches with "fling" in them will find items with the specified Fling behavior.`,
+		`Searches with "natural gift" in them will find items with the specified Natural Gift behavior.`,
+	],
+
+	'!learn': true,
+	learnset: 'learn',
+	learnall: 'learn',
+	learn5: 'learn',
+	rbylearn: 'learn',
+	gsclearn: 'learn',
+	advlearn: 'learn',
+	dpplearn: 'learn',
+	bw2learn: 'learn',
+	oraslearn: 'learn',
+	learn: function (target, room, user, connection, cmd, message) {
+		if (!this.canBroadcast()) return;
+		if (!target) return this.parse('/help learn');
+
+		return runSearch({
+			target: target,
+			cmd: 'learn',
+			message: cmd,
+		}).then(response => {
+			if (!this.runBroadcast()) return;
+			if (response.error) {
+				this.errorReply(response.error);
+			} else if (response.reply) {
+				this.sendReplyBox(response.reply);
+			}
+			this.update();
+		});
+	},
+	learnhelp: [
+		`/learn [ruleset], [pokemon], [move, move, ...] - Displays how the Pok\u00e9mon can learn the given moves, if it can at all.`,
+		`!learn [ruleset], [pokemon], [move, move, ...] - Show everyone that information. Requires: + % @ * # & ~`,
+		`Specifying a ruleset is entirely optional. The ruleset can be a format, a generation (e.g.: gen3) or 'pentagon'. A value of 'pentagon' indicates that trading from previous generations is not allowed.`,
+		`/learn5 displays how the Pok\u00e9mon can learn the given moves at level 5, if it can at all.`,
+		`/learnall displays all of the possible fathers for egg moves.`,
+		`/learn can also be prefixed by a generation acronym (e.g.: /dpplearn) to indicate which generation is used. Valid options are: rby gsc adv dpp bw2 oras`,
+	],
+};
+
+function runDexsearch(target, cmd, canAll, message) {
+	let searches = [];
+	let allTiers = {'uber': 'Uber', 'ubers': 'Uber', 'ou': 'OU', 'uubl': 'UUBL', 'uu': 'UU', 'rubl': 'RUBL', 'ru': 'RU', 'nubl': 'NUBL', 'nu': 'NU', 'publ': 'PUBL', 'pu': 'PU', 'zu': '(PU)', 'nfe': 'NFE', 'lcuber': 'LC Uber', 'lcubers': 'LC Uber', 'lc': 'LC', 'cap': 'CAP', 'caplc': 'CAP LC', 'capnfe': 'CAP NFE', __proto__: null};
+	let allDoublesTiers = {'doublesubers': 'DUber', 'doublesuber': 'DUber', 'duber': 'DUber', 'dubers': 'DUber', 'doublesou': 'DOU', 'dou': 'DOU', 'doublesbl': 'DBL', 'dbl': 'DBL', 'doublesuu': 'DUU', 'duu': 'DUU', __proto__: null};
+	let allTypes = Object.create(null);
+	for (let i in Dex.data.TypeChart) {
+		allTypes[toId(i)] = i;
+	}
+	let allColors = ['green', 'red', 'blue', 'white', 'brown', 'yellow', 'purple', 'pink', 'gray', 'black'];
+	let allEggGroups = {'amorphous': 'Amorphous', 'bug': 'Bug', 'ditto': 'Ditto', 'dragon': 'Dragon', 'fairy': 'Fairy', 'field': 'Field', 'flying': 'Flying', 'grass': 'Grass', 'humanlike': 'Human-Like', 'mineral': 'Mineral', 'monster': 'Monster', 'undiscovered': 'Undiscovered', 'water1': 'Water 1', 'water2': 'Water 2', 'water3': 'Water 3', __proto__: null};
+	let allStats = ['hp', 'atk', 'def', 'spa', 'spd', 'spe', 'bst', 'weight', 'height', 'gen'];
+	let showAll = false;
+	let megaSearch = null;
+	let capSearch = null;
+	let randomOutput = 0;
+	let maxGen = 0;
+	let validParameter = (cat, param, isNotSearch, input) => {
+		let uniqueTraits = ['colors', 'gens'];
+		for (const group of searches) {
+			if (group[cat] === undefined) continue;
+			if (group[cat][param] === undefined) {
+				if (uniqueTraits.includes(cat)) {
+					for (let currentParam in group[cat]) {
+						if (group[cat][currentParam] !== isNotSearch && !isNotSearch) return `A Pok&eacute;mon cannot have multiple ${cat}.`;
+					}
+				}
+				continue;
+			}
+			if (group[cat][param] === isNotSearch) {
+				return `A search cannot both include and exclude '${input}'.`;
+			} else {
+				return `The search included '${(isNotSearch ? "!" : "") + input}' more than once.`;
+			}
+		}
+		return false;
+	};
+
+	for (const andGroup of target.split(',')) {
+		let orGroup = {abilities: {}, tiers: {}, doublesTiers: {}, colors: {}, 'egg groups': {}, gens: {}, moves: {}, types: {}, resists: {}, weak: {}, stats: {}, skip: false};
+		let parameters = andGroup.split("|");
+		if (parameters.length > 3) return {reply: "No more than 3 alternatives for each parameter may be used."};
+		for (const parameter of parameters) {
+			let isNotSearch = false;
+			target = parameter.trim().toLowerCase();
+			if (target.charAt(0) === '!') {
+				isNotSearch = true;
+				target = target.substr(1);
+			}
+
+			let targetAbility = Dex.getAbility(target);
+			if (targetAbility.exists) {
+				let invalid = validParameter("abilities", targetAbility, isNotSearch, targetAbility);
+				if (invalid) return {reply: invalid};
+				orGroup.abilities[targetAbility] = !isNotSearch;
+				continue;
+			}
+
+			if (toId(target) in allTiers) {
+				target = allTiers[toId(target)];
+				if (target.startsWith("CAP")) {
+					if (capSearch === isNotSearch) return {reply: "A search cannot both include and exclude CAP tiers."};
+					capSearch = !isNotSearch;
+				}
+				let invalid = validParameter("tiers", target, isNotSearch, target);
+				if (invalid) return {reply: invalid};
+				orGroup.tiers[target] = !isNotSearch;
+				continue;
+			}
+
+			if (toId(target) in allDoublesTiers) {
+				target = allDoublesTiers[toId(target)];
+				let invalid = validParameter("doubles tiers", target, isNotSearch, target);
+				if (invalid) return {reply: invalid};
+				orGroup.doublesTiers[target] = !isNotSearch;
+				continue;
+			}
+
+			if (allColors.includes(target)) {
+				target = target.charAt(0).toUpperCase() + target.slice(1);
+				let invalid = validParameter("colors", target, isNotSearch, target);
+				if (invalid) return {reply: invalid};
+				orGroup.colors[target] = !isNotSearch;
+				continue;
+			}
+
+			let targetMove = Dex.getMove(target);
+			if (targetMove.exists) {
+				let invalid = validParameter("moves", targetMove.id, isNotSearch, target);
+				if (invalid) return {reply: invalid};
+				orGroup.moves[targetMove.id] = !isNotSearch;
+				continue;
+			}
+
+			let targetType;
+			if (target.endsWith('type')) {
+				targetType = toId(target.substring(0, target.indexOf('type')));
+			} else {
+				targetType = toId(target);
+			}
+			if (targetType in allTypes) {
+				target = allTypes[targetType];
+				const invalid = validParameter("types", target, isNotSearch, target);
+				if (invalid) return {reply: invalid};
+				if ((orGroup.types[target] && isNotSearch) || (orGroup.types[target] === false && !isNotSearch)) return {reply: 'A search cannot both exclude and include a type.'};
+				orGroup.types[target] = !isNotSearch;
+				continue;
+			}
+
+			if (target.substr(0, 6) === 'maxgen') {
+				maxGen = parseInt(target[6]);
+				if (!maxGen || maxGen < 1 || maxGen > 7) return {reply: "The generation must be between 1 and 7"};
+				orGroup.skip = true;
+				continue;
+			}
+
+			let groupIndex = target.indexOf('group');
+			if (groupIndex === -1) groupIndex = target.length;
+			if (groupIndex !== target.length || toId(target) in allEggGroups) {
+				target = toId(target.substring(0, groupIndex));
+				if (target in allEggGroups) {
+					target = allEggGroups[toId(target)];
+					let invalid = validParameter("egg groups", target, isNotSearch, target);
+					if (invalid) return {reply: invalid};
+					orGroup['egg groups'][target] = !isNotSearch;
+					continue;
+				} else {
+					return {reply: `'${target}' is not a recognized egg group.`};
+				}
+			}
+			if (toId(target) in allEggGroups) {
+				target = allEggGroups[toId(target)];
+				let invalid = validParameter("egg groups", target, isNotSearch, target);
+				if (invalid) return {reply: invalid};
+				orGroup['egg groups'][target] = !isNotSearch;
+				continue;
+			}
+
+			let targetInt = 0;
+			if (target.substr(0, 1) === 'g' && Number.isInteger(parseFloat(target.substr(1)))) {
+				targetInt = parseInt(target.substr(1).trim());
+			} else if (target.substr(0, 3) === 'gen' && Number.isInteger(parseFloat(target.substr(3)))) {
+				targetInt = parseInt(target.substr(3).trim());
+			}
+			if (0 < targetInt && targetInt < 8) {
+				let invalid = validParameter("gens", targetInt, isNotSearch, target);
+				if (invalid) return {reply: invalid};
+				orGroup.gens[targetInt] = !isNotSearch;
+				continue;
+			}
+
+			if (target === 'all') {
+				if (!canAll) return {reply: "A search with the parameter 'all' cannot be broadcast."};
+				if (parameters.length > 1) return {reply: "The parameter 'all' cannot have alternative parameters"};
+				showAll = true;
+				orGroup.skip = true;
+				break;
+			}
+
+			if (target.substr(0, 6) === 'random' && cmd === 'randpoke') {
+				//validation for this is in the /randpoke command
+				randomOutput = parseInt(target.substr(6));
+				orGroup.skip = true;
+				continue;
